@@ -51,7 +51,7 @@ Future features never touch the transport. They just add a new `topic` and
 ```powershell
 npm install
 
-# terminal 1 — the hub
+# terminal 1 — the hub (also serves the dashboard)
 npm run broker
 
 # terminal 2 — a fake node
@@ -65,8 +65,11 @@ npm run ask laptop-1
 npm run ask laptop-1 ping
 ```
 
-You should see the broker log each node as it reports in, the agents notice
-each other coming online, and `ask` get a live reply back through the hub.
+Then open **http://localhost:8787** — the dashboard shows one live card per
+node (CPU, memory, temperature, disk), updating every 1.5s, and greys a card out
+~15s after its agent stops. You'll also see the broker log each node as it
+reports in, the agents notice each other coming online, and `ask` get a live
+reply back through the hub.
 
 ## Deploy to the 5 laptops
 
@@ -81,12 +84,34 @@ each other coming online, and `ask` get a live reply back through the hub.
 4. Set each laptop's power options to **"do nothing" on lid close** so it stays
    connected, and run the agent on startup (Task Scheduler or a Windows service).
 
-## Roadmap (rides on the same envelope)
+## Roadmap (everything rides on the same envelope — no new transport)
 
-- **Dashboard**: a web page on the host that subscribes to node.online /
-  heartbeat and renders five live cards.
-- **Real stats**: swap `os` for the `systeminformation` package (CPU%, temp,
-  disk, per-process).
-- **Task control**: `command` topics like `task.start` / `task.stop` to manage
-  the py/node automation each laptop runs.
-- **Screen stream**: an MJPEG topic when you want eyes on a screen.
+**Done**
+
+- **Live dashboard** — `http://localhost:8787` renders one card per node from
+  `node.online` / heartbeat data.
+- **Real stats** — agents report real CPU%, memory, temperature, and disk via
+  `systeminformation`.
+
+**Next**
+
+- **Command console** — a box on the dashboard to send a shell command to one /
+  some / all nodes and stream their stdout back, side by side: SSH-for-the-fleet
+  in a browser tab. (A `command` goes out; `event` chunks stream back.)
+- **Task control** — `task.start` / `task.stop` topics to start, stop, and tail
+  the logs of the py/node automation each laptop runs.
+- **Node-to-node jobs** — a node splits a workload and dispatches chunks to its
+  peers through the broker: a poor-man's distributed task queue.
+- **Screen stream** *(maybe)* — a low-fps MJPEG topic for the rare time you need
+  eyes on an actual GUI. For full visual takeover, just use RDP.
+
+## Layout
+
+```
+shared/protocol.js   the message envelope + 4 primitives — shared by all sides
+broker/index.js      the hub: registers nodes, tracks presence, routes by `to`,
+                     and serves the dashboard + read-only /api/nodes
+agent/index.js       runs on each laptop: reports in, heartbeats, obeys commands
+dashboard/index.html the live web UI (polls /api/nodes)
+tools/ask.js         one-shot CLI to test request/response routing
+```
