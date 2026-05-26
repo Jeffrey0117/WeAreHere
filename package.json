@@ -1,0 +1,15 @@
+{
+  "name": "wearehere",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal-LAN control & communication backbone for a cluster of laptops. A central broker routes messages between nodes; nodes report in (\"we are here\"), heartbeat, and obey commands.",
+  "scripts": {
+    "broker": "node broker/index.js",
+    "agent": "node agent/index.js",
+    "ask": "node tools/ask.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
