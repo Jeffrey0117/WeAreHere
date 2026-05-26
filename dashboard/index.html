@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeAreHere</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.4 system-ui, "Segoe UI", sans-serif;
+    background: #0d1117; color: #e6edf3; padding: 24px;
+  }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .5px; }
+  .sub { color: #8b949e; font-size: 13px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 16px; transition: opacity .3s;
+  }
+  .card.offline { opacity: .45; }
+  .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #3fb950; flex: none; }
+  .card.offline .dot { background: #f85149; }
+  .name { font-weight: 600; font-size: 16px; }
+  .meta { color: #8b949e; font-size: 12px; margin-bottom: 14px; min-height: 16px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+  .row .label { width: 44px; color: #8b949e; font-size: 12px; }
+  .row .val { width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { flex: 1; height: 7px; background: #21262d; border-radius: 4px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: #2f81f7; transition: width .4s; }
+  .bar > span.warn { background: #d29922; }
+  .bar > span.hot { background: #f85149; }
+  .foot { color: #8b949e; font-size: 11px; margin-top: 12px; }
+  .empty { color: #8b949e; grid-column: 1 / -1; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>WeAreHere</h1>
+    <span class="sub" id="status">connecting…</span>
+  </header>
+  <div class="grid" id="grid"></div>
+
+<script>
+const grid = document.getElementById('grid');
+const statusEl = document.getElementById('status');
+
+function bar(pct, label) {
+  if (pct == null || Number.isNaN(pct)) {
+    return `<div class="row"><span class="label">${label}</span><div class="bar"></div><span class="val">—</span></div>`;
+  }
+  const cls = pct >= 90 ? 'hot' : pct >= 70 ? 'warn' : '';
+  return `<div class="row">
+    <span class="label">${label}</span>
+    <div class="bar"><span class="${cls}" style="width:${Math.min(pct,100)}%"></span></div>
+    <span class="val">${pct}%</span>
+  </div>`;
+}
+
+function ago(ms) {
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return s + 's ago';
+  return Math.round(s / 60) + 'm ago';
+}
+
+function card(n) {
+  const i = n.info || {};
+  const uptime = i.upMin != null ? (i.upMin >= 60 ? (i.upMin/60|0)+'h' : i.upMin+'m') : '—';
+  return `<div class="card ${n.online ? '' : 'offline'}">
+    <div class="card-head"><span class="dot"></span><span class="name">${n.id}</span></div>
+    <div class="meta">${i.cpuModel || i.platform || ''} ${i.cores ? '· '+i.cores+' cores' : ''} ${i.totalMemGB ? '· '+i.totalMemGB+'GB' : ''}</div>
+    ${bar(i.cpuPct, 'CPU')}
+    ${bar(i.memUsedPct, 'MEM')}
+    ${bar(i.diskUsedPct, 'DISK')}
+    <div class="row"><span class="label">TEMP</span><div class="bar"></div><span class="val">${i.tempC != null ? i.tempC+'°C' : '—'}</span></div>
+    <div class="foot">up ${uptime} · ${n.online ? 'seen '+ago(n.lastSeen) : 'offline'}</div>
+  </div>`;
+}
+
+async function tick() {
+  try {
+    const r = await fetch('/api/nodes');
+    const { nodes } = await r.json();
+    const online = nodes.filter(n => n.online).length;
+    statusEl.textContent = `${online} / ${nodes.length} online`;
+    grid.innerHTML = nodes.length
+      ? nodes.sort((a,b) => a.id.localeCompare(b.id)).map(card).join('')
+      : '<div class="empty">No nodes yet. Start an agent and it will report in here.</div>';
+  } catch {
+    statusEl.textContent = 'broker unreachable';
+  }
+}
+
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>

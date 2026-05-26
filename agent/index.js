@@ -8,6 +8,7 @@
 
 import WebSocket from 'ws';
 import os from 'node:os';
+import si from 'systeminformation';
 import {
   Type, MASTER, decode, encode, event, heartbeat, response,
 } from '../shared/protocol.js';
@@ -24,10 +25,10 @@ function connect() {
   log(`connecting to ${BROKER_URL} …`);
   ws = new WebSocket(BROKER_URL);
 
-  ws.on('open', () => {
+  ws.on('open', async () => {
     log('connected — announcing "we are here"');
-    send(event(NODE_ID, MASTER, 'register', sysInfo()));
-    hbTimer = setInterval(() => send(heartbeat(NODE_ID, sysSnapshot())), HEARTBEAT_INTERVAL);
+    send(event(NODE_ID, MASTER, 'register', await sysInfo()));
+    hbTimer = setInterval(async () => send(heartbeat(NODE_ID, await sysSnapshot())), HEARTBEAT_INTERVAL);
   });
 
   ws.on('message', (raw) => {
@@ -69,9 +70,9 @@ function onMessage(msg) {
 }
 
 // Someone asked us something — reply with a RESPONSE (broker pairs it by id).
-function handleRequest(msg) {
+async function handleRequest(msg) {
   switch (msg.topic) {
-    case 'sys.stats': return send(response(msg, NODE_ID, sysSnapshot()));
+    case 'sys.stats': return send(response(msg, NODE_ID, await sysSnapshot()));
     case 'ping': return send(response(msg, NODE_ID, { pong: true, at: Date.now() }));
     default: return send(response(msg, NODE_ID, { error: 'unknown-topic', topic: msg.topic }));
   }
@@ -90,27 +91,42 @@ function handleCommand(msg) {
 }
 
 // Static facts — sent once at register time.
-function sysInfo() {
-  return {
+async function sysInfo() {
+  const base = {
     hostname: os.hostname(),
     platform: os.platform(),
     arch: os.arch(),
-    cpus: os.cpus().length,
-    totalMemMB: Math.round(os.totalmem() / 1048576),
+    cores: os.cpus().length,
+    totalMemGB: +(os.totalmem() / 1073741824).toFixed(1),
   };
+  try {
+    const cpu = await si.cpu();
+    base.cpuModel = `${cpu.manufacturer} ${cpu.brand}`.trim();
+  } catch { /* cpu model is best-effort */ }
+  return base;
 }
 
-// Live numbers — sent on every heartbeat.
-// NOTE: os.loadavg() is 0 on Windows. Swap in the `systeminformation`
-// package later for real CPU%, temps, disk, per-process stats.
-function sysSnapshot() {
-  const total = os.totalmem();
-  const free = os.freemem();
-  return {
-    upMin: Math.round(os.uptime() / 60),
-    memUsedPct: Math.round((1 - free / total) * 100),
-    loadavg: os.loadavg(),
-  };
+// Live numbers — sent on every heartbeat. Real CPU%, memory, temperature, disk.
+// tempC/diskUsedPct are null when the machine has no sensor / can't report.
+async function sysSnapshot() {
+  try {
+    const [load, mem, temp, fs] = await Promise.all([
+      si.currentLoad(),
+      si.mem(),
+      si.cpuTemperature(),
+      si.fsSize(),
+    ]);
+    const sysDisk = fs.find((d) => /^C:/i.test(d.mount)) || fs[0] || {};
+    return {
+      cpuPct: Math.round(load.currentLoad),
+      memUsedPct: Math.round((mem.active / mem.total) * 100),
+      tempC: temp.main > 0 ? Math.round(temp.main) : null,
+      diskUsedPct: sysDisk.use != null ? Math.round(sysDisk.use) : null,
+      upMin: Math.round(os.uptime() / 60),
+    };
+  } catch (e) {
+    return { error: e.message, upMin: Math.round(os.uptime() / 60) };
+  }
 }
 
 function send(msg) {

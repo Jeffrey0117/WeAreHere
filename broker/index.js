@@ -5,6 +5,10 @@
 //   - routes every message by its `to` field (a node id, MASTER, or BROADCAST)
 // It is deliberately dumb about payloads — it only reads the envelope.
 
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
   Type, MASTER, BROADCAST, decode, encode, event, response,
@@ -13,12 +17,36 @@ import {
 const PORT = Number(process.env.PORT) || 8787;
 const HEARTBEAT_TIMEOUT = 15000; // mark offline if silent this long
 const SWEEP_INTERVAL = 5000;
+const DASHBOARD_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard');
 
 // id -> { ws, info, lastSeen, online }
 const nodes = new Map();
 
-const wss = new WebSocketServer({ port: PORT });
-log(`broker listening on ws://0.0.0.0:${PORT}  — waiting for nodes to report in`);
+// HTTP side: serves the dashboard page and a read-only snapshot for it to poll.
+const server = http.createServer((req, res) => {
+  if (req.url === '/api/nodes') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ now: Date.now(), nodes: snapshot() }));
+    return;
+  }
+  const rel = req.url === '/' ? 'index.html' : req.url.replace(/^\/+/, '').split('?')[0];
+  const file = path.join(DASHBOARD_DIR, rel);
+  if (!file.startsWith(DASHBOARD_DIR)) { res.writeHead(403).end(); return; } // no path escape
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404).end('not found'); return; }
+    const type = file.endsWith('.html') ? 'text/html'
+      : file.endsWith('.js') ? 'text/javascript'
+        : file.endsWith('.css') ? 'text/css' : 'application/octet-stream';
+    res.writeHead(200, { 'content-type': type });
+    res.end(data);
+  });
+});
+
+// WebSocket side: the actual node backbone, sharing the same port.
+const wss = new WebSocketServer({ server });
+server.listen(PORT, () => {
+  log(`broker up — websocket + dashboard on http://localhost:${PORT}  (waiting for nodes)`);
+});
 
 wss.on('connection', (ws) => {
   ws._nodeId = null;

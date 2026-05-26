@@ -5,11 +5,12 @@
   "type": "module",
   "description": "Internal-LAN control & communication backbone for a cluster of laptops. A central broker routes messages between nodes; nodes report in (\"we are here\"), heartbeat, and obey commands.",
   "scripts": {
-    "broker": "node broker/index.js",
-    "agent": "node agent/index.js",
-    "ask": "node tools/ask.js"
+    "broker": "node --env-file-if-exists=.env broker/index.js",
+    "agent": "node --env-file-if-exists=.env agent/index.js",
+    "ask": "node --env-file-if-exists=.env tools/ask.js"
   },
   "dependencies": {
+    "systeminformation": "^5.31.6",
     "ws": "^8.18.0"
   }
 }
